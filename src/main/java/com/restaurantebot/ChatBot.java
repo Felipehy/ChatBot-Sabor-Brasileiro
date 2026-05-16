@@ -24,23 +24,25 @@ public class ChatBot extends TelegramLongPollingBot {
 
     // Palavras que disparam o menu
     private static final Set<String> SAUDACOES = Set.of(
-            "oi", "olá", "ola", "hey", "eae", "e aí", "e ai", "bom dia", "boa tarde", "boa noite"
-    );
+            "oi", "olá", "ola", "hey", "eae", "e aí", "e ai", "bom dia", "boa tarde", "boa noite");
 
     // Respostas de cada botão
     private static final Map<String, String> RESPOSTAS = Map.of(
             "informacoes", "ℹ️ Aqui estão as informações:\n• Item 1\n• Item 2\n• Item 3",
-            "suporte",     "🛠️ Para suporte, acesse: https://seusite.com/suporte",
-            "atendente",   "📞 Um atendente irá te contatar em breve. Aguarde!",
-            "encerrar",    "👋 Até logo! Se precisar de algo, é só chamar."
-    );
+            "suporte", "🛠️ Para suporte, acesse: https://seusite.com/suporte",
+            "atendente", "📞 Um atendente irá te contatar em breve. Aguarde!",
+            "encerrar", "👋 Até logo! Se precisar de algo, é só chamar.");
 
     // ── Telegram config ───────────────────────────────────────────────────────
     @Override
-    public String getBotToken() { return BOT_TOKEN; }
+    public String getBotToken() {
+        return BOT_TOKEN;
+    }
 
     @Override
-    public String getBotUsername() { return BOT_USERNAME; }
+    public String getBotUsername() {
+        return BOT_USERNAME;
+    }
 
     // ── Recebe atualizações ───────────────────────────────────────────────────
     @Override
@@ -72,10 +74,10 @@ public class ChatBot extends TelegramLongPollingBot {
 
     // ── Clique nos botões ─────────────────────────────────────────────────────
     private void handleCallback(Update update) {
-        var query    = update.getCallbackQuery();
-        var chatId   = query.getMessage().getChatId().toString();
-        var msgId    = query.getMessage().getMessageId();
-        var data     = query.getData();
+        var query = update.getCallbackQuery();
+        var chatId = query.getMessage().getChatId().toString();
+        var msgId = query.getMessage().getMessageId();
+        var data = query.getData();
 
         String resposta = RESPOSTAS.getOrDefault(data, "Opção não reconhecida.");
 
@@ -115,10 +117,10 @@ public class ChatBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup menuPrincipal() {
         return InlineKeyboardMarkup.builder()
-                .keyboardRow(List.of(btn("📋 Ver informações",     "informacoes")))
-                .keyboardRow(List.of(btn("🛠️ Suporte",             "suporte")))
+                .keyboardRow(List.of(btn("📋 Ver informações", "informacoes")))
+                .keyboardRow(List.of(btn("🛠️ Suporte", "suporte")))
                 .keyboardRow(List.of(btn("📞 Falar com atendente", "atendente")))
-                .keyboardRow(List.of(btn("❌ Encerrar",             "encerrar")))
+                .keyboardRow(List.of(btn("❌ Encerrar", "encerrar")))
                 .build();
     }
 
