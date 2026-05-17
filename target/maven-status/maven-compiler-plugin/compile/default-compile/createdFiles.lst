@@ -1,7 +1,12 @@
-com\restaurantebot\Config.class
+com\restaurantebot\Marmita.class
 com\restaurantebot\Pedido.class
+com\restaurantebot\CardapioService.class
+com\restaurantebot\RestauranteBot$1.class
+com\restaurantebot\Categoria.class
+com\restaurantebot\OpcaoCategoria.class
+com\restaurantebot\Config.class
 com\restaurantebot\Main.class
 com\restaurantebot\EstadoConversa.class
+com\restaurantebot\ItemCardapio.class
 com\restaurantebot\ChatBot.class
-com\restaurantebot\RestauranteBot$1.class
 com\restaurantebot\RestauranteBot.class
