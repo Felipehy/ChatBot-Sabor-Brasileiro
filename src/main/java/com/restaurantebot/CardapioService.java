@@ -13,28 +13,10 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Catálogo do restaurante. Centraliza tudo o que é "mockado/configurável":
- *   - imagem do cardápio (Google Drive ou fallback local);
- *   - tamanhos e preços base das marmitas;
- *   - opções de cada categoria da marmita e seus valores extras;
- *   - bebidas disponíveis.
- *
- * Para alterar valores/itens basta editar os métodos abaixo — nenhum outro
- * arquivo precisa ser tocado. Quando houver uma API/Drive externos, é aqui
- * que a integração entra.
- */
 public class CardapioService {
 
     private static final Logger log = LoggerFactory.getLogger(CardapioService.class);
 
-    // ── Imagem do cardápio ────────────────────────────────────────────────────
-    /**
-     * Retorna um {@link InputFile} pronto para envio ao Telegram com a imagem
-     * do cardápio. Se {@link Config#DRIVE_CARDAPIO_FILE_ID} estiver preenchido,
-     * baixa do Google Drive via URL pública; caso contrário, usa o arquivo
-     * local definido em {@link Config#CARDAPIO_LOCAL_PATH}.
-     */
     public InputFile buscarImagemCardapio() {
         String fileId = Config.DRIVE_CARDAPIO_FILE_ID;
 
@@ -63,8 +45,6 @@ public class CardapioService {
         return new InputFile(imagem);
     }
 
-    // ── Tamanhos da marmita ───────────────────────────────────────────────────
-    /** Tamanhos disponíveis. Edite aqui para mudar preços ou adicionar tamanhos. */
     public List<ItemCardapio> buscarTamanhosMarmita() {
         return List.of(
                 new ItemCardapio("Marmita pequena", 18.00),
@@ -73,7 +53,6 @@ public class CardapioService {
         );
     }
 
-    // ── Opções por categoria ──────────────────────────────────────────────────
     private static final Map<Categoria, List<OpcaoCategoria>> OPCOES =
             new EnumMap<>(Categoria.class);
 
@@ -113,13 +92,10 @@ public class CardapioService {
         ));
     }
 
-    /** Opções disponíveis para a categoria informada. Edite o map estático acima para alterar. */
     public List<OpcaoCategoria> buscarOpcoesCategoria(Categoria categoria) {
         return OPCOES.get(categoria);
     }
 
-    // ── Bebidas ───────────────────────────────────────────────────────────────
-    /** Bebidas disponíveis. Edite aqui para mudar preços ou catálogo. */
     public List<ItemCardapio> buscarBebidas() {
         return List.of(
                 new ItemCardapio("Refrigerante lata",  6.00),
@@ -129,7 +105,6 @@ public class CardapioService {
         );
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
     private String montarUrlDownloadDrive(String fileId) {
         return "https://drive.google.com/uc?export=download&id=" + fileId;
     }

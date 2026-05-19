@@ -4,17 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Carrinho do cliente: lista de marmitas customizadas + bebidas + dados
- * de entrega e pagamento.
- *
- * Cada cliente (chatId) tem um {@code Pedido} próprio em
- * {@link RestauranteBot#pedidos}, garantindo que pedidos não se misturem.
- *
- * Durante a montagem, {@link #marmitaAtual} guarda a marmita em construção;
- * ela só entra na lista oficial quando {@link #adicionarMarmitaAoCarrinho()}
- * é chamado, ao final da escolha de todas as categorias.
- */
 public class Pedido {
 
     private static final Locale PT_BR = new Locale("pt", "BR");
@@ -29,7 +18,6 @@ public class Pedido {
     private String pagamento;
     private String statusPagamento;
 
-    // ── Marmitas ──────────────────────────────────────────────────────────────
     public Marmita iniciarNovaMarmita() {
         marmitaAtual = new Marmita();
         return marmitaAtual;
@@ -50,7 +38,6 @@ public class Pedido {
         if (indice >= 0 && indice < marmitas.size()) marmitas.remove(indice);
     }
 
-    // ── Bebidas ───────────────────────────────────────────────────────────────
     public void adicionarBebida(ItemCardapio b) { bebidas.add(b); }
     public List<ItemCardapio> getBebidas()      { return bebidas; }
 
@@ -58,7 +45,6 @@ public class Pedido {
         if (indice >= 0 && indice < bebidas.size()) bebidas.remove(indice);
     }
 
-    // ── Totais ────────────────────────────────────────────────────────────────
     public double calcularTotal() {
         double total = 0;
         for (Marmita m : marmitas)      total += m.calcularSubtotal();
@@ -74,7 +60,6 @@ public class Pedido {
         return marmitas.isEmpty() && bebidas.isEmpty();
     }
 
-    // ── Dados de entrega / pagamento ──────────────────────────────────────────
     public String getTipoEntrega()             { return tipoEntrega; }
     public void   setTipoEntrega(String v)     { this.tipoEntrega = v; }
 
@@ -90,11 +75,6 @@ public class Pedido {
     public String getStatusPagamento()         { return statusPagamento; }
     public void   setStatusPagamento(String v) { this.statusPagamento = v; }
 
-    // ── Resumo para o cliente ─────────────────────────────────────────────────
-    /**
-     * Resumo exibido ao cliente antes de finalizar o pedido. Inclui cada
-     * marmita com seu subtotal, lista de bebidas (se houver) e total geral.
-     */
     public String gerarResumoCliente() {
         StringBuilder sb = new StringBuilder();
         sb.append("*Resumo do pedido:*\n\n");

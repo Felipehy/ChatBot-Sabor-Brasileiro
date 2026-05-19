@@ -18,22 +18,18 @@ public class ChatBot extends TelegramLongPollingBot {
 
     private static final Logger log = LoggerFactory.getLogger(ChatBot.class);
 
-    // ── Configuração ──────────────────────────────────────────────────────────
     private static final String BOT_TOKEN = "SEU_TOKEN_AQUI";
-    private static final String BOT_USERNAME = "SEU_USERNAME_AQUI"; // sem @
+    private static final String BOT_USERNAME = "SEU_USERNAME_AQUI";
 
-    // Palavras que disparam o menu
     private static final Set<String> SAUDACOES = Set.of(
             "oi", "olá", "ola", "hey", "eae", "e aí", "e ai", "bom dia", "boa tarde", "boa noite");
 
-    // Respostas de cada botão
     private static final Map<String, String> RESPOSTAS = Map.of(
             "informacoes", "ℹ️ Aqui estão as informações:\n• Item 1\n• Item 2\n• Item 3",
             "suporte", "🛠️ Para suporte, acesse: https://seusite.com/suporte",
             "atendente", "📞 Um atendente irá te contatar em breve. Aguarde!",
             "encerrar", "👋 Até logo! Se precisar de algo, é só chamar.");
 
-    // ── Telegram config ───────────────────────────────────────────────────────
     @Override
     public String getBotToken() {
         return BOT_TOKEN;
@@ -44,23 +40,17 @@ public class ChatBot extends TelegramLongPollingBot {
         return BOT_USERNAME;
     }
 
-    // ── Recebe atualizações ───────────────────────────────────────────────────
     @Override
     public void onUpdateReceived(Update update) {
-
-        // Clique em botão inline
         if (update.hasCallbackQuery()) {
             handleCallback(update);
             return;
         }
-
-        // Mensagem de texto
         if (update.hasMessage() && update.getMessage().hasText()) {
             handleMessage(update);
         }
     }
 
-    // ── Mensagem de texto ─────────────────────────────────────────────────────
     private void handleMessage(Update update) {
         String texto = update.getMessage().getText().toLowerCase().trim();
         String chatId = update.getMessage().getChatId().toString();
@@ -72,7 +62,6 @@ public class ChatBot extends TelegramLongPollingBot {
         }
     }
 
-    // ── Clique nos botões ─────────────────────────────────────────────────────
     private void handleCallback(Update update) {
         var query = update.getCallbackQuery();
         var chatId = query.getMessage().getChatId().toString();
@@ -81,7 +70,6 @@ public class ChatBot extends TelegramLongPollingBot {
 
         String resposta = RESPOSTAS.getOrDefault(data, "Opção não reconhecida.");
 
-        // Edita a mensagem original com a resposta
         EditMessageText edit = EditMessageText.builder()
                 .chatId(chatId)
                 .messageId(msgId)
@@ -94,13 +82,11 @@ public class ChatBot extends TelegramLongPollingBot {
             log.error("Erro ao editar mensagem", e);
         }
 
-        // Mostra o menu novamente (exceto ao encerrar)
         if (!data.equals("encerrar")) {
             enviarMenu(chatId, "Posso ajudar com mais alguma coisa?");
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
     private void enviarMenu(String chatId, String texto) {
         SendMessage msg = SendMessage.builder()
                 .chatId(chatId)

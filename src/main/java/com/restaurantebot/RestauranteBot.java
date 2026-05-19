@@ -21,52 +21,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Bot do restaurante.
- *
- * Fluxo principal:
- *   1. Menu principal (endereço, horários, cardápio, atendente).
- *   2. "Ver cardápio" envia a imagem + pergunta "Deseja montar uma marmita?".
- *   3. Montagem da marmita: tamanho → arroz → feijão → macarrão → legumes
- *      → carnes → adicionais. Seleção 100% por botões.
- *   4. Possibilidade de adicionar várias marmitas.
- *   5. Bebidas opcionais (também por botão).
- *   6. Resumo do pedido com ações: remover item / finalizar / cancelar.
- *   7. Entrega ou retirada → forma de pagamento → resumo enviado ao atendente.
- *
- * Cada cliente tem seu próprio estado e carrinho, indexados por chatId, de
- * forma que pedidos de clientes diferentes nunca se misturem.
- *
- * Atendimento humano (modo relay):
- *   - Cliente clica "Falar com atendente" → entra em EM_ATENDIMENTO. Tudo
- *     que ele digita é encaminhado para o chat configurado em
- *     {@link Config#CHAT_ID_ATENDENTE}.
- *   - O atendente inicia uma sessão com {@code /atender <chatId>}; daí em
- *     diante qualquer texto que ele digitar é encaminhado para o cliente
- *     como "👤 Atendente: ...". Encerra com {@code /encerrar <chatId>}
- *     (ou {@code /encerrar} sem argumento, que usa a sessão ativa).
- *   - Como alternativa, o atendente pode dar *reply* a uma mensagem que o
- *     bot enviou para responder àquele cliente sem precisar abrir sessão.
- *   - As mensagens enviadas ao atendente são mapeadas em
- *     {@link #notificacaoParaCliente} (messageId → chatId do cliente) para
- *     viabilizar o reply. A sessão ativa por atendente fica em
- *     {@link #sessaoAtiva} (userId do atendente → chatId do cliente).
- */
 public class RestauranteBot extends TelegramLongPollingBot {
 
     private static final Logger log = LoggerFactory.getLogger(RestauranteBot.class);
 
-    // Estado e carrinho são armazenados POR cliente (chatId).
     private final Map<Long, EstadoConversa> estados = new HashMap<>();
     private final Map<Long, Pedido> pedidos = new HashMap<>();
-
-    // messageId no chat do atendente → chatId do cliente correspondente.
-    // Permite que o atendente "responda" a uma notificação para iniciar o relay.
     private final Map<Integer, Long> notificacaoParaCliente = new HashMap<>();
-
-    // userId do atendente → chatId do cliente que ele está atendendo no momento.
-    // Enquanto houver entrada aqui, qualquer texto que esse atendente enviar
-    // é encaminhado para o cliente correspondente.
     private final Map<Long, Long> sessaoAtiva = new HashMap<>();
 
     private final CardapioService cardapioService = new CardapioService();
@@ -101,7 +62,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    /** Verifica se o chat de origem é o configurado para o atendente. */
     private boolean isAtendenteChat(long chatId) {
         if (Config.CHAT_ID_ATENDENTE == null || Config.CHAT_ID_ATENDENTE.isBlank()) {
             return false;
@@ -113,9 +73,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Processamento de TEXTO
-    // ─────────────────────────────────────────────────────────────────────────
     private void processarTexto(Update update) {
         long chatId = update.getMessage().getChatId();
         String texto = update.getMessage().getText().trim();
@@ -124,10 +81,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
 
         EstadoConversa estado = estados.getOrDefault(chatId, EstadoConversa.INICIO);
 
-        // Modo relay: cliente em atendimento humano. /sair e /start são
-        // ignorados (o cliente não tem opção de encerrar); só o atendente
-        // pode encerrar via /encerrar <chatId>. Qualquer outra mensagem é
-        // encaminhada ao atendente.
         if (estado == EstadoConversa.EM_ATENDIMENTO) {
             if (lower.equals("/sair") || lower.equals("/start")) {
                 return;
@@ -142,7 +95,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
 
         switch (estado) {
-            // Coleta de dados de entrega/retirada
             case AGUARDANDO_ENDERECO -> {
                 pedidos.get(chatId).setEndereco(texto);
                 estados.put(chatId, EstadoConversa.AGUARDANDO_NOME_ENTREGA);
@@ -158,16 +110,11 @@ public class RestauranteBot extends TelegramLongPollingBot {
             }
             case INICIO -> enviarMenuPrincipal(chatId);
 
-            // Em qualquer estado que espera botão, não reseta o pedido —
-            // apenas lembra o cliente de usar os botões.
             default -> enviarMensagemSimples(chatId,
                     "Por favor, selecione uma das opções pelos botões acima.");
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Processamento de CALLBACKS (botões inline)
-    // ─────────────────────────────────────────────────────────────────────────
     private void processarCallback(Update update) {
         var query = update.getCallbackQuery();
         long chatId = query.getMessage().getChatId();
@@ -179,7 +126,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
             execute(AnswerCallbackQuery.builder().callbackQueryId(query.getId()).build());
         } catch (TelegramApiException ignored) { }
 
-        // Roteamento por prefixo (botões dinâmicos com índice)
         if (data.startsWith("tam_")) { handleTamanho(chatId, data);          return; }
         if (data.startsWith("opc_")) { handleOpcaoCategoria(chatId, data);   return; }
         if (data.startsWith("beb_")) { handleEscolhaBebida(chatId, data);    return; }
@@ -190,7 +136,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
 
         switch (data) {
-            // Menu principal
             case "endereco" -> {
                 editarMensagem(chatId, msgId,
                         "*Endereço do restaurante:*\n" + Config.ENDERECO +
@@ -213,26 +158,22 @@ public class RestauranteBot extends TelegramLongPollingBot {
             }
             case "voltar_menu" -> enviarMenuPrincipal(chatId);
 
-            // Fluxo de marmita
             case "inicio_marmita_sim" -> iniciarMontagemMarmita(chatId);
             case "inicio_marmita_nao" -> enviarMenuPrincipal(chatId);
 
             case "outra_marmita_sim" -> selecionarTamanhoMarmita(chatId);
             case "outra_marmita_nao" -> iniciarFluxoBebidas(chatId);
 
-            // Fluxo de bebidas
             case "bebida_inicio_sim" -> exibirBebidasDisponiveis(chatId);
             case "bebida_inicio_nao" -> gerarResumoPedido(chatId);
 
             case "outra_bebida_sim"  -> exibirBebidasDisponiveis(chatId);
             case "outra_bebida_nao"  -> gerarResumoPedido(chatId);
 
-            // Ações no resumo
             case "acao_remover"   -> exibirOpcoesRemocao(chatId);
             case "acao_finalizar" -> iniciarFluxoRecebimento(chatId);
             case "acao_cancelar"  -> cancelarPedido(chatId);
 
-            // Tipo de recebimento
             case "entrega"  -> coletarDadosEntrega(chatId);
             case "retirada" -> coletarDadosRetirada(chatId);
 
@@ -240,11 +181,7 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MENU PRINCIPAL
-    // ─────────────────────────────────────────────────────────────────────────
     private void enviarMenuPrincipal(long chatId) {
-        // Volta ao menu sempre limpa estado/carrinho para evitar mistura de fluxos.
         limparEstadoCliente(chatId);
         enviarMensagem(chatId,
                 "Olá! Seja bem-vindo ao atendimento do restaurante. Como podemos te ajudar hoje?",
@@ -260,10 +197,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                 teclado(List.of(List.of(btn("Voltar ao menu", "voltar_menu")))));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CARDÁPIO
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Envia a imagem do cardápio e pergunta se o cliente quer montar uma marmita. */
     private void enviarCardapioImagem(long chatId) {
         try {
             SendPhoto photo = SendPhoto.builder()
@@ -272,7 +205,7 @@ public class RestauranteBot extends TelegramLongPollingBot {
                     .caption("Aqui está o cardápio.\n\nDeseja montar uma marmita?")
                     .replyMarkup(teclado(List.of(
                             List.of(btn("Sim, montar marmita", "inicio_marmita_sim")),
-                            List.of(btn("Não",                 "inicio_marmitaDe_nao")))))
+                            List.of(btn("Não",                 "inicio_marmita_nao")))))
                     .parseMode("Markdown")
                     .build();
             execute(photo);
@@ -282,15 +215,11 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MONTAGEM DA MARMITA
-    // ─────────────────────────────────────────────────────────────────────────
     private void iniciarMontagemMarmita(long chatId) {
         pedidos.computeIfAbsent(chatId, k -> new Pedido());
         selecionarTamanhoMarmita(chatId);
     }
 
-    /** Pergunta o tamanho da marmita e cria a "marmita atual" para preenchimento. */
     private void selecionarTamanhoMarmita(long chatId) {
         Pedido pedido = pedidos.computeIfAbsent(chatId, k -> new Pedido());
         pedido.iniciarNovaMarmita();
@@ -327,7 +256,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         selecionarCategoriaMarmita(chatId);
     }
 
-    /** Mostra os botões da próxima categoria pendente. Se todas já foram escolhidas, fecha a marmita. */
     private void selecionarCategoriaMarmita(long chatId) {
         Pedido pedido = pedidos.get(chatId);
         if (pedido == null || pedido.getMarmitaAtual() == null) {
@@ -364,7 +292,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         selecionarCategoriaMarmita(chatId);
     }
 
-    /** Aplica a escolha do cliente (opção concreta ou "Não quero esse item"). */
     private void salvarOpcaoCategoria(long chatId, Categoria cat, String data) {
         Marmita atual = pedidos.get(chatId).getMarmitaAtual();
         if (data.equals("opc_skip")) {
@@ -374,15 +301,12 @@ public class RestauranteBot extends TelegramLongPollingBot {
         int idx = parseIndice(data, "opc_");
         List<OpcaoCategoria> opcoes = cardapioService.buscarOpcoesCategoria(cat);
         if (idx < 0 || idx >= opcoes.size()) {
-            // Em caso de índice inválido, trata como "Não quero esse item"
-            // para garantir avanço de fluxo.
             atual.registrarOpcao(cat, OpcaoCategoria.PULAR);
             return;
         }
         atual.registrarOpcao(cat, opcoes.get(idx));
     }
 
-    /** Move a marmita atual para o carrinho e pergunta se o cliente quer outra. */
     private void adicionarMarmitaAoCarrinho(long chatId) {
         Pedido pedido = pedidos.get(chatId);
         Marmita m = pedido.getMarmitaAtual();
@@ -400,9 +324,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                         List.of(btn("Não, continuar",               "outra_marmita_nao")))));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // BEBIDAS
-    // ─────────────────────────────────────────────────────────────────────────
     private void iniciarFluxoBebidas(long chatId) {
         estados.put(chatId, EstadoConversa.AGUARDANDO_INICIAR_BEBIDA);
         enviarMensagem(chatId, "Deseja adicionar bebidas ao pedido?",
@@ -452,9 +373,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                         List.of(btn("Não, continuar",              "outra_bebida_nao")))));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // RESUMO + AÇÕES (remover / finalizar / cancelar)
-    // ─────────────────────────────────────────────────────────────────────────
     private void gerarResumoPedido(long chatId) {
         Pedido pedido = pedidos.get(chatId);
         if (pedido == null || pedido.vazio()) {
@@ -470,7 +388,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                         List.of(btn("Cancelar pedido",  "acao_cancelar")))));
     }
 
-    /** Usado quando o carrinho fica vazio depois de remoções. */
     private void perguntarMontarMarmita(long chatId) {
         estados.put(chatId, EstadoConversa.AGUARDANDO_INICIAR_MARMITA);
         enviarMensagem(chatId, "Deseja montar uma marmita?",
@@ -513,7 +430,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
             perguntarMontarMarmita(chatId);
             return;
         }
-        // Recalcula total via gerarResumoPedido (que usa Pedido.calcularTotal).
         gerarResumoPedido(chatId);
     }
 
@@ -534,9 +450,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         enviarMenuPrincipal(chatId);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FLUXO DE RECEBIMENTO (entrega / retirada / pagamento)
-    // ─────────────────────────────────────────────────────────────────────────
     private void iniciarFluxoRecebimento(long chatId) {
         Pedido pedido = pedidos.get(chatId);
         if (pedido == null || pedido.vazio()) {
@@ -576,9 +489,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                 List.of(btn("3 - Pix",     "pag_pix"))));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FINALIZAÇÃO + NOTIFICAÇÃO PARA ATENDENTE
-    // ─────────────────────────────────────────────────────────────────────────
     private void finalizarPedido(long chatId, User from, String callbackPagamento) {
         Pedido pedido = pedidos.get(chatId);
         if (pedido == null) { enviarMenuPrincipal(chatId); return; }
@@ -602,7 +512,7 @@ public class RestauranteBot extends TelegramLongPollingBot {
                         ? "O pagamento será realizado no momento da entrega."
                         : "O pagamento será realizado no momento da retirada.";
             }
-            default -> { // pag_debito
+            default -> {
                 pagamento = "Débito";
                 statusPagamento = entrega
                         ? "Pagamento no local da entrega"
@@ -615,17 +525,13 @@ public class RestauranteBot extends TelegramLongPollingBot {
         pedido.setPagamento(pagamento);
         pedido.setStatusPagamento(statusPagamento);
 
-        // 1. Avisa o cliente sobre o pagamento (Pix fictício ou cartão no local).
         enviarMensagemSimples(chatId, mensagemPagamentoCliente);
 
-        // 2. Resumo final para o atendente.
         enviarResumoParaAtendente(pedido, from, chatId);
 
-        // 3. Confirmação para o cliente.
         enviarMensagemSimples(chatId,
                 "Pedido registrado com sucesso! Um atendente dará continuidade ao seu atendimento.");
 
-        // 4. Limpa estado/carrinho e leva o cliente de volta ao menu.
         limparEstadoCliente(chatId);
         enviarMenuPrincipal(chatId);
     }
@@ -636,11 +542,9 @@ public class RestauranteBot extends TelegramLongPollingBot {
 
     private void enviarResumoParaAtendente(Pedido pedido, User from, long chatId) {
         Integer msgId = enviarMensagemAtendente(montarResumoFinal(pedido, from, chatId), "Markdown");
-        // Permite que o atendente responda ao resumo para falar com o cliente.
         if (msgId != null) notificacaoParaCliente.put(msgId, chatId);
     }
 
-    /** Resumo final enviado ao Telegram do atendente. */
     private String montarResumoFinal(Pedido pedido, User from, long chatId) {
         boolean entrega = "ENTREGA".equals(pedido.getTipoEntrega());
         StringBuilder sb = new StringBuilder();
@@ -681,10 +585,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         return sb.toString();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ATENDIMENTO HUMANO (modo relay)
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Coloca o cliente em EM_ATENDIMENTO e dispara a notificação ao atendente. */
     private void iniciarAtendimentoHumano(long chatId, User from) {
         if (Config.CHAT_ID_ATENDENTE == null || Config.CHAT_ID_ATENDENTE.isBlank()) {
             enviarMensagemSimples(chatId,
@@ -696,7 +596,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         notificarAtendenteSolicitacao(chatId, from);
     }
 
-    /** Notifica o atendente que um cliente entrou em atendimento. */
     private void notificarAtendenteSolicitacao(long chatId, User from) {
         StringBuilder sb = new StringBuilder();
         sb.append("*Solicitação de atendimento humano*\n\n");
@@ -716,7 +615,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         if (msgId != null) notificacaoParaCliente.put(msgId, chatId);
     }
 
-    /** Encaminha uma mensagem do cliente para o chat do atendente. */
     private void encaminharMensagemAoAtendente(long chatId, User from, String texto) {
         StringBuilder header = new StringBuilder();
         header.append("📩 De ").append(nomeOuFallback(from));
@@ -725,21 +623,11 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
         header.append(" — chatId ").append(chatId).append(":\n").append(texto);
 
-        // Sem Markdown: o texto do cliente pode conter caracteres especiais.
+        // Sem Markdown: texto do cliente pode conter caracteres especiais que quebram o parser.
         Integer msgId = enviarMensagemAtendente(header.toString(), null);
         if (msgId != null) notificacaoParaCliente.put(msgId, chatId);
     }
 
-    /**
-     * Trata mensagens vindas do chat do atendente. Caminhos suportados:
-     *  - /atender &lt;chatId&gt; abre uma sessão (texto livre subsequente vai
-     *    para esse cliente);
-     *  - /encerrar &lt;chatId&gt; (ou /encerrar sozinho) encerra a sessão;
-     *  - reply a uma notificação do bot encaminha aquela mensagem ao cliente
-     *    correspondente, sem alterar a sessão ativa;
-     *  - qualquer outro texto é encaminhado ao cliente da sessão ativa do
-     *    atendente, se houver. Sem sessão ativa e sem reply, ignora.
-     */
     private void processarMensagemAtendente(Update update) {
         Message msg = update.getMessage();
         String texto = msg.getText().trim();
@@ -756,7 +644,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Reply a uma notificação do bot: encaminha sem mexer na sessão ativa.
         if (msg.getReplyToMessage() != null) {
             Integer replyId = msg.getReplyToMessage().getMessageId();
             Long clienteChatId = notificacaoParaCliente.get(replyId);
@@ -766,16 +653,13 @@ public class RestauranteBot extends TelegramLongPollingBot {
             }
         }
 
-        // Sessão ativa: encaminha ao cliente em atendimento.
         Long clienteAtivo = sessaoAtiva.get(atendenteUserId);
         if (clienteAtivo != null) {
             relayParaCliente(clienteAtivo, texto, atendenteChatId);
         }
-        // Sem sessão e sem reply: ignora silenciosamente.
     }
 
     private void tratarComandoAtender(String texto, long atendenteChatId, long atendenteUserId) {
-        // Formato: /atender <chatId>
         String arg = texto.length() > "/atender".length()
                 ? texto.substring("/atender".length()).trim()
                 : "";
@@ -792,7 +676,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
     }
 
     private void tratarComandoEncerrar(String texto, long atendenteChatId, long atendenteUserId) {
-        // Formato: /encerrar <chatId>  (ou /encerrar sozinho — usa a sessão ativa)
         String arg = texto.length() > "/encerrar".length()
                 ? texto.substring("/encerrar".length()).trim()
                 : "";
@@ -811,7 +694,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                 return;
             }
         }
-        // Se a sessão ativa do atendente aponta para este cliente, limpa.
         if (clienteChatId.equals(sessaoAtiva.get(atendenteUserId))) {
             sessaoAtiva.remove(atendenteUserId);
         }
@@ -829,7 +711,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
                 "Atendimento com cliente " + clienteChatId + " encerrado.");
     }
 
-    /** Entrega uma mensagem do atendente ao cliente, prefixada como "Atendente". */
     private void relayParaCliente(long clienteChatId, String texto, long atendenteChatId) {
         try {
             execute(SendMessage.builder()
@@ -843,18 +724,12 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    /**
-     * Encaminha uma foto enviada pelo atendente para o cliente da sessão ativa
-     * (ou ao cliente cuja notificação foi respondida). A legenda da foto,
-     * se houver, é prefixada com "👤 Atendente:".
-     */
     private void repassarFotoAtendenteParaCliente(Update update) {
         Message msg = update.getMessage();
         User atendente = msg.getFrom();
         long atendenteUserId = atendente != null ? atendente.getId() : 0L;
         long atendenteChatId = msg.getChatId();
 
-        // Resolve o cliente-alvo: reply tem prioridade sobre sessão ativa.
         Long clienteChatId = null;
         if (msg.getReplyToMessage() != null) {
             Integer replyId = msg.getReplyToMessage().getMessageId();
@@ -863,7 +738,7 @@ public class RestauranteBot extends TelegramLongPollingBot {
         if (clienteChatId == null) {
             clienteChatId = sessaoAtiva.get(atendenteUserId);
         }
-        if (clienteChatId == null) return; // sem alvo, ignora a foto
+        if (clienteChatId == null) return;
 
         String fileId = maiorFotoFileId(msg);
         String caption = msg.getCaption();
@@ -884,11 +759,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    /**
-     * Encaminha uma foto enviada pelo cliente em modo atendimento para o chat
-     * do atendente, com um cabeçalho identificando o remetente. Só atua quando
-     * o cliente está em EM_ATENDIMENTO.
-     */
     private void repassarFotoClienteParaAtendente(Update update) {
         Message msg = update.getMessage();
         long chatId = msg.getChatId();
@@ -922,17 +792,11 @@ public class RestauranteBot extends TelegramLongPollingBot {
         }
     }
 
-    /** Pega o file_id da maior resolução disponível na foto recebida. */
     private String maiorFotoFileId(Message msg) {
         var fotos = msg.getPhoto();
         return fotos.get(fotos.size() - 1).getFileId();
     }
 
-    /**
-     * Envia uma mensagem ao chat configurado do atendente e devolve o
-     * messageId resultante (ou {@code null} se algo falhou). O messageId é
-     * usado para mapear "reply → cliente" no relay.
-     */
     private Integer enviarMensagemAtendente(String texto, String parseMode) {
         if (Config.CHAT_ID_ATENDENTE == null || Config.CHAT_ID_ATENDENTE.isBlank()) {
             log.warn("CHAT_ID_ATENDENTE não configurado — mensagem não enviada ao atendente.");
@@ -956,10 +820,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         catch (NumberFormatException e) { return null; }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // HELPERS
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Remove estado e carrinho do cliente. */
     private void limparEstadoCliente(long chatId) {
         estados.remove(chatId);
         pedidos.remove(chatId);
@@ -972,7 +832,6 @@ public class RestauranteBot extends TelegramLongPollingBot {
         return "(desconhecido)";
     }
 
-    /** Extrai o índice numérico de um callbackData com prefixo (ex.: "tam_2" → 2). */
     private int parseIndice(String data, String prefixo) {
         try {
             return Integer.parseInt(data.substring(prefixo.length()));
